@@ -43,6 +43,7 @@ cdef class Criterion:
     # statistics correspond to samples[start:pos] and samples[pos:end].
 
     # Methods
+
     cdef int init(
         self,
         const float64_t[:, ::1] y,
@@ -67,6 +68,9 @@ cdef class Criterion:
         self,
         float64_t* dest
     ) noexcept nogil
+
+    cdef void set_mix_rates(self, float64_t l1, float64_t l2)
+
     cdef void clip_node_value(
         self,
         float64_t* dest,

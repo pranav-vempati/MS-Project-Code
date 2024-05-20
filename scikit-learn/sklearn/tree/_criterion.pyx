@@ -12,10 +12,14 @@
 #
 # License: BSD 3 clause
 
+# Criterion.pyx
+
 from libc.string cimport memcpy
 from libc.string cimport memset
 from libc.math cimport fabs, INFINITY
-
+from libc.stdio cimport printf
+from libc.stdlib cimport atof
+from libc.stdlib cimport getenv
 import numpy as np
 cimport numpy as cnp
 cnp.import_array()
@@ -83,8 +87,8 @@ cdef class Criterion:
         self.l2 = 0.0
 
 
-    cdef void set_mix_rates(self, float64_t l1, float64_t l2) noexcept nogil:
-        """Set the mix rates for the children impurity calculation."""
+    cdef void set_mix_rates(self, float64_t l1, float64_t l2):
+        """Set the mix rates for the children impurity calculation. This function is invoked from _splitter.pyx"""
         self.l1 = l1
         self.l2 = l2
 
@@ -185,7 +189,7 @@ cdef class Criterion:
 
     cdef float64_t proxy_impurity_improvement(self) noexcept nogil:
         """Compute a proxy of the impurity reduction.
-
+ 
         This method is used to speed up the search for the best split.
         It is a proxy quantity such that the split that maximizes this value
         also maximizes the impurity improvement. It neglects all constant terms
@@ -794,17 +798,18 @@ cdef class Gini(ClassificationCriterion):
                                                   self.weighted_n_right)
 
         # ADDED CODE STARTS HERE
-        alpha = 0.07
        
-        # Add the alpha term to both impurity scores
-        alpha_term = alpha * abs(self.l1 - self.l2)
+
+        alpha = 0.00101010101010101
+ 
+        abs_diff = abs(self.l1 - self.l2) / 2.0 # Normalize to the Gini impurity value's range, i.e. [0, 0.5]
+        alpha_term = alpha * abs_diff
         impurity_left[0] = gini_left + alpha_term
         impurity_right[0] = gini_right + alpha_term
         impurity_left[0] = impurity_left[0] / self.n_outputs
         impurity_right[0] = impurity_right[0] / self.n_outputs
-
+       
         # ADDED CODE ENDS HERE 
-
 
 cdef inline void _move_sums_regression(
     RegressionCriterion criterion,

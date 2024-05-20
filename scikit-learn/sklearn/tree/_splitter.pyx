@@ -11,11 +11,16 @@
 #
 # License: BSD 3 clause
 
+#Splitter.pyx
+
+import sys
+print("sys.path is: ", sys.path)
+
 from cython cimport final
 from libc.math cimport isnan
 from libc.stdlib cimport qsort
 from libc.string cimport memcpy
-
+from libc.stdio cimport printf
 from ._criterion cimport Criterion
 from ._utils cimport log
 from ._utils cimport rand_int
@@ -258,8 +263,7 @@ cdef class Splitter:
 
 cdef inline void shift_missing_values_to_left_if_required(
     SplitRecord* best,
-    intp_t[::1] samples,
-    intp_t end,
+    intp_t[::1] samples, intp_t end
 ) noexcept nogil:
     """Shift missing value sample indices to the left of the split if required.
 
@@ -292,45 +296,27 @@ ctypedef fused Partitioner:
 
 # ADDED CODE STARTS HERE
 
-cdef inline int majority_vote(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end) noexcept nogil:
+cdef inline int majority_vote(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end):
     """Compute the majority class label based on ground truth."""
     cdef dict counts = {}
     cdef intp_t i
+    cdef long label
     for i in range(start, end):
-        label = labels[indices[i]]
+        label = <long>labels[indices[i], 0]  
         counts[label] = counts.get(label, 0) + 1
-    # Return the class with the maximum count
-    return max(counts, key=counts.get)
-'''
-cdef inline int count_false_positive(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end, int majority_class) noexcept nogil:
-    """Count false positives given a majority class."""
-    cdef int fp_count = 0
-    cdef intp_t i
-    for i in range(start, end):
-        if labels[indices[i]] != majority_class:
-            fp_count += 1
-    return fp_count
+    return max(counts, key=counts.get)  # Return the class with the maximum count
 
-cdef inline int count_true_negative(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end, int majority_class) noexcept nogil:
-    """Count true negatives given a majority class."""
-    cdef int tn_count = 0
-    cdef intp_t i
-    for i in range(start, end):
-        if labels[indices[i]] == majority_class:
-            tn_count += 1
-    return tn_count
 
-'''
-cdef inline double mix_rate(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end, int majority_class) noexcept nogil:
+
+cdef inline double mix_rate(const float64_t[:, ::1] labels, intp_t[::1] indices, int start, int end, int majority_class):
     """Calculate the mix rate given a majority class."""
     cdef intp_t i
     cdef int count = 0
     for i in range(start, end):
-        if labels[indices[i]] != majority_class:
+        if int(labels[indices[i], 0]) != majority_class:
             count += 1
-    total_samples = end - start
-    return count / total_samples if total_samples > 0 else 0
-
+    cdef int total_samples = end - start
+    return <double>count / total_samples if total_samples > 0 else 0
 
 # ADDED CODE ENDS HERE
 
@@ -577,18 +563,18 @@ cdef inline int node_split_best(
         criterion.update(best_split.pos)
 
         # ADDED CODE STARTS HERE
+        with gil: # Acquire the global interpreter lock in order to invoke functions that modify Python objects
+            # After determining the best split threshold and partitioning samples:
+            majority_class_left = majority_vote(criterion.y, samples, start, best_split.pos)
+            majority_class_right = majority_vote(criterion.y, samples, best_split.pos, end_non_missing)
 
-        # After determining the best split threshold and partitioning samples:
-        majority_class_left = majority_vote(criterion.y, samples, start, best_split.pos)
-        majority_class_right = majority_vote(criterion.y, samples, best_split.pos, end_non_missing)
+                
+            # Calculate mix rates
+            mixrate_left = mix_rate(criterion.y, samples, start, best_split.pos, majority_class_left)
+            mixrate_right = mix_rate(criterion.y, samples, best_split.pos, end_non_missing, majority_class_right)
 
-            
-        # Calculate mix rates
-        mixrate_left = mix_rate(criterion.y, samples, start, best_split.pos, majority_class_left)
-        mixrate_right = mix_rate(criterion.y, samples, best_split.pos, end_non_missing, majority_class_right)
-
-        # Set mix rates in the criterion object
-        criterion.set_mix_rates(mixrate_left, mixrate_right)
+            # Set mix rates in the criterion object
+            criterion.set_mix_rates(mixrate_left, mixrate_right)
 
         # ADDED CODE ENDS HERE
 
